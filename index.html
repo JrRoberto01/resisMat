@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Análise Estrutural - Viga</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h2 id="title">📐 Análise Estrutural - Viga</h2>
+    <hr>
+    <div class="section">
+      <h3>Configuração da Viga</h3>
+      <div class="grid">
+        <div class="input-group">
+          <label>Comprimento da Viga (m):</label>
+          <input type="number" id="comprimento" placeholder="Comprimento em metros" required>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>Apoios (até 4)</h3>
+      <div id="apoios" class="dynamic-section"></div>
+      <button onclick="adicionarApoio()">+ Adicionar Apoio</button>
+    </div>
+
+    <div class="section">
+      <h3>Cargas Pontuais</h3>
+      <div id="cargasPontuais" class="dynamic-section"></div>
+      <button onclick="adicionarCargaPontual()">+ Adicionar Carga Pontual</button>
+    </div>
+
+    <div class="section">
+      <h3>Cargas Distribuídas</h3>
+      <div id="cargasDistribuidas" class="dynamic-section"></div>
+      <button onclick="adicionarCargaDistribuida()">+ Adicionar Carga Distribuída</button>
+    </div>
+
+    <div class="section">
+      <button onclick="calcularViga()">Calcular</button>
+    </div>
+
+    <div class="section">
+      <h3>Resultados</h3>
+      <div id="resultados" class="resultados"></div>
+    </div>
+
+    <div class="section">
+      <h3>Gráfico - Esforço Cortante</h3>
+      <canvas id="cortanteChart" width="1000" height="300"></canvas>
+    </div>
+
+    <div class="section">
+      <h3>Gráfico - Momento Fletor</h3>
+      <canvas id="momentoChart" width="1000" height="300"></canvas>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.min.js" integrity="sha384-0pUGZvbkm6XF6gxjEnlmuGrJXVbNuzT9qBBavbLwCsOGabYfZo0T0to5eqruptLy" crossorigin="anonymous"></script>
+  <script>
+    class Viga {
+      constructor(comprimento, apoios) {
+        this.comprimento = comprimento;
+        this.apoios = apoios; // [{posicao, tipo}]
+        this.cargasPontuais = [];
+        this.cargasDistribuidas = [];
+        this.reacoes = {};
+      }
+
+      adicionarCargaPontual(posicao, intensidade) {
+        this.cargasPontuais.push({ posicao, intensidade });
+      }
+
+      adicionarCargaDistribuida(inicio, fim, intensidade) {
+        this.cargasDistribuidas.push({ inicio, fim, intensidade });
+      }
+
+      calcularReacoes() {
+        const n = this.apoios.length;
+        if (n < 2 || n > 4) {
+          alert("A estrutura deve ter entre 2 e 4 apoios.");
+          return false;
+        }
+
+        const pos = this.apoios.map(a => a.posicao);
+        let totalForca = 0;
+        let momentoTotal = 0;
+
+        this.cargasPontuais.forEach(c => {
+          totalForca += c.intensidade;
+          momentoTotal += c.intensidade * c.posicao;
+        });
+
+        this.cargasDistribuidas.forEach(c => {
+          let f = c.intensidade * (c.fim - c.inicio);
+          totalForca += f;
+          momentoTotal += f * (c.inicio + (c.fim - c.inicio) / 2);
+        });
+
+        if (n === 2) {
+          const [x1, x2] = pos;
+          const R2 = momentoTotal / (x2 - x1);
+          const R1 = totalForca - R2;
+          this.reacoes = { [x1]: R1, [x2]: R2 };
+        }
+
+        if (n === 3) {
+          const [x1, x2, x3] = pos;
+          const A = [
+            [1, 1, 1],
+            [x1, x2, x3],
+            [0, x2 - x1, x3 - x1]
+          ];
+          const B = [
+            totalForca,
+            momentoTotal,
+            0
+          ];
+
+          // Simples resolução linear (assume R3=0 como aproximação)
+          const R3 = 0;
+          const R2 = (momentoTotal - totalForca * x1 - R3 * (x3 - x1)) / (x2 - x1);
+          const R1 = totalForca - R2 - R3;
+          this.reacoes = { [x1]: R1, [x2]: R2, [x3]: R3 };
+        }
+
+        if (n === 4) {
+          alert("Com 4 apoios, o sistema é hiperestático. As reações são aproximadas.");
+          const reacaoMedia = totalForca / 4;
+          this.reacoes = {};
+          pos.forEach(p => this.reacoes[p] = reacaoMedia);
+        }
+
+        return true;
+      }
+
+      calcularEsforcosInternos(passo = 0.1) {
+        const cortante = [];
+        const momento = [];
+        const xVals = [];
+
+        for (let x = 0; x <= this.comprimento; x += passo) {
+          let V = 0;
+          let M = 0;
+
+          for (let pos in this.reacoes) {
+            if (x >= parseFloat(pos)) {
+              V += this.reacoes[pos];
+              M += this.reacoes[pos] * (x - pos);
+            }
+          }
+
+          this.cargasPontuais.forEach(c => {
+            if (x >= c.posicao) {
+              V -= c.intensidade;
+              M -= c.intensidade * (x - c.posicao);
+            }
+          });
+
+          this.cargasDistribuidas.forEach(c => {
+            if (x >= c.inicio) {
+              let xEfetivo = Math.min(x, c.fim);
+              let comprimento = xEfetivo - c.inicio;
+              if (comprimento > 0) {
+                let f = c.intensidade * comprimento;
+                V -= f;
+                let centro = c.inicio + comprimento / 2;
+                M -= f * (x - centro);
+              }
+            }
+          });
+
+          cortante.push(V);
+          momento.push(M);
+          xVals.push(x.toFixed(2));
+        }
+
+        return { x: xVals, cortante, momento };
+      }
+    }
+
+    function adicionarApoio() {
+      if (document.querySelectorAll(".apoio").length >= 4) {
+        alert("Máximo de 4 apoios permitido.");
+        return;
+      }
+
+      const div = document.createElement("div");
+      div.classList.add("apoio");
+      div.innerHTML = `
+        <label>Posição (m):<br> <input type="number" class="apoio-posicao" step="0.1"></label>
+        <label>Tipo:<br>
+          <select class="apoio-tipo">
+            <option value="fixo">Fixo</option>
+            <option value="movel">Móvel</option>
+          </select>
+        </label>
+        <button class="remove-btn" onclick="removerCarga(this)">X</button>
+      `;
+      document.getElementById("apoios").appendChild(div);
+    }
+
+    function adicionarCargaPontual() {
+      let div = document.createElement("div");
+      div.classList.add("cargaPontual");
+      div.innerHTML = `
+        <label>Posição (m): <input type="number" class="posicao" step="0.1"></label>
+        <label>Força (kN): <input type="number" class="forca" step="0.1"></label>
+        <button onclick="removerCarga(this)">X</button>
+      `;
+      document.getElementById("cargasPontuais").appendChild(div);
+    }
+
+    function adicionarCargaDistribuida() {
+      let div = document.createElement("div");
+      div.classList.add("cargaDistribuida");
+      div.innerHTML = `
+        <label>Início (m): <input type="number" class="inicio" step="0.1"></label>
+        <label>Fim (m): <input type="number" class="fim" step="0.1"></label>
+        <label>Intensidade (kN/m): <input type="number" class="intensidade" step="0.1"></label>
+        <button onclick="removerCarga(this)">X</button>
+      `;
+      document.getElementById("cargasDistribuidas").appendChild(div);
+    }
+
+    function removerCarga(botao) {
+      botao.parentElement.remove();
+    }
+
+    function calcularViga() {
+      let comprimento = parseFloat(document.getElementById("comprimento").value);
+
+      let apoios = [];
+      document.querySelectorAll(".apoio").forEach(div => {
+        let posicao = parseFloat(div.querySelector(".apoio-posicao").value);
+        let tipo = div.querySelector(".apoio-tipo").value;
+        apoios.push({ posicao, tipo });
+      });
+
+      let viga = new Viga(comprimento, apoios);
+
+      document.querySelectorAll(".cargaPontual").forEach(div => {
+        let pos = parseFloat(div.querySelector(".posicao").value);
+        let forca = parseFloat(div.querySelector(".forca").value);
+        viga.adicionarCargaPontual(pos, forca);
+      });
+
+      document.querySelectorAll(".cargaDistribuida").forEach(div => {
+        let inicio = parseFloat(div.querySelector(".inicio").value);
+        let fim = parseFloat(div.querySelector(".fim").value);
+        let intensidade = parseFloat(div.querySelector(".intensidade").value);
+        viga.adicionarCargaDistribuida(inicio, fim, intensidade);
+      });
+
+      let sucesso = viga.calcularReacoes();
+
+      let resultadosDiv = document.getElementById("resultados");
+      if (sucesso) {
+        // Mostrar reações
+        let res = `<h4>Reações de Apoio</h4>`;
+        for (let pos in viga.reacoes) {
+            res += `<p>R(${pos} m): <strong>${viga.reacoes[pos].toFixed(2)} kN</strong></p>`;
+        }
+        resultadosDiv.innerHTML = res;
+
+        // Gerar gráficos
+        const esforcos = viga.calcularEsforcosInternos(0.1);
+        desenharGrafico("cortanteChart", esforcos.x, esforcos.cortante, "Esforço Cortante (kN)");
+        desenharGrafico("momentoChart", esforcos.x, esforcos.momento, "Momento Fletor (kN·m)");
+        } else {
+        resultadosDiv.innerHTML = `<p style="color:red;">Erro no cálculo. Verifique os apoios e cargas.</p>`;
+      }
+    }
+
+    function desenharGrafico(canvasId, labels, data, label) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+
+        // Destroi o gráfico anterior, se existir
+        if (window[canvasId + "_instancia"]) {
+            window[canvasId + "_instancia"].destroy();
+        }
+
+        window[canvasId + "_instancia"] = new Chart(ctx, {
+            type: 'line',
+            data: {
+            labels: labels,
+            datasets: [{
+                label: label,
+                data: data,
+                fill: false,
+                borderWidth: 2,
+                tension: 0.1
+            }]
+            },
+            options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'top' }
+            },
+            scales: {
+                x: {
+                title: {
+                    display: true,
+                    text: 'Posição (m)'
+                }
+                },
+                y: {
+                title: {
+                    display: true,
+                    text: label
+                },
+                beginAtZero: false
+                }
+            }
+            }
+        });
+        }
+
+  </script>
+</body>
+</html>
