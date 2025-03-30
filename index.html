@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Análise Estrutural - Viga</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -12,6 +12,7 @@
   <div class="container">
     <h2 id="title">📐 Análise Estrutural - Viga</h2>
     <hr>
+
     <div class="section">
       <h3>Configuração da Viga</h3>
       <div class="grid">
@@ -58,14 +59,19 @@
       <h3>Gráfico - Momento Fletor</h3>
       <canvas id="momentoChart" width="1000" height="300"></canvas>
     </div>
+
+    <div class="section">
+      <h3>Gráfico - Esforço Normal</h3>
+      <canvas id="normalChart" width="1000" height="300"></canvas>
+    </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.min.js" integrity="sha384-0pUGZvbkm6XF6gxjEnlmuGrJXVbNuzT9qBBavbLwCsOGabYfZo0T0to5eqruptLy" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.min.js"></script>
   <script>
     class Viga {
       constructor(comprimento, apoios) {
         this.comprimento = comprimento;
-        this.apoios = apoios; // [{posicao, tipo}]
+        this.apoios = apoios;
         this.cargasPontuais = [];
         this.cargasDistribuidas = [];
         this.reacoes = {};
@@ -86,53 +92,273 @@
           return false;
         }
 
+        this.apoios.sort((a, b) => a.posicao - b.posicao);
         const pos = this.apoios.map(a => a.posicao);
+
         let totalForca = 0;
-        let momentoTotal = 0;
+        let momentoTotalOrigem = 0;
 
         this.cargasPontuais.forEach(c => {
           totalForca += c.intensidade;
-          momentoTotal += c.intensidade * c.posicao;
+          momentoTotalOrigem += c.intensidade * c.posicao;
         });
 
         this.cargasDistribuidas.forEach(c => {
           let f = c.intensidade * (c.fim - c.inicio);
           totalForca += f;
-          momentoTotal += f * (c.inicio + (c.fim - c.inicio) / 2);
+          momentoTotalOrigem += f * (c.inicio + (c.fim - c.inicio) / 2);
         });
 
         if (n === 2) {
           const [x1, x2] = pos;
-          const R2 = momentoTotal / (x2 - x1);
+          if (x2 - x1 <= 0) {
+             alert("Posições dos apoios inválidas.");
+             return false;
+          }
+          let momentoApoio1 = 0;
+           this.cargasPontuais.forEach(c => {
+             momentoApoio1 += c.intensidade * (c.posicao - x1);
+           });
+           this.cargasDistribuidas.forEach(c => {
+             let f = c.intensidade * (c.fim - c.inicio);
+             let centroCarga = c.inicio + (c.fim - c.inicio) / 2;
+             momentoApoio1 += f * (centroCarga - x1);
+           });
+
+          const R2 = momentoApoio1 / (x2 - x1);
           const R1 = totalForca - R2;
           this.reacoes = { [x1]: R1, [x2]: R2 };
-        }
 
-        if (n === 3) {
+        } else if (n === 3) {
           const [x1, x2, x3] = pos;
-          const A = [
-            [1, 1, 1],
-            [x1, x2, x3],
-            [0, x2 - x1, x3 - x1]
-          ];
-          const B = [
-            totalForca,
-            momentoTotal,
-            0
-          ];
+          const L1 = x2 - x1;
+          const L2 = x3 - x2;
 
-          // Simples resolução linear (assume R3=0 como aproximação)
-          const R3 = 0;
-          const R2 = (momentoTotal - totalForca * x1 - R3 * (x3 - x1)) / (x2 - x1);
-          const R1 = totalForca - R2 - R3;
-          this.reacoes = { [x1]: R1, [x2]: R2, [x3]: R3 };
-        }
+          if (L1 <= 0 || L2 <= 0) {
+            alert("Posições dos apoios inválidas ou apoios coincidentes.");
+            return false;
+          }
 
-        if (n === 4) {
-          alert("Com 4 apoios, o sistema é hiperestático. As reações são aproximadas.");
-          const reacaoMedia = totalForca / 4;
-          this.reacoes = {};
-          pos.forEach(p => this.reacoes[p] = reacaoMedia);
+          let termoCarga1 = 0;
+          let termoCarga2 = 0;
+
+          this.cargasPontuais.forEach(c => {
+            if (c.posicao > x1 && c.posicao < x2) {
+              let P = c.intensidade;
+              let a = c.posicao - x1;
+              termoCarga1 += P * a * (L1**2 - a**2) / L1;
+            } else if (c.posicao > x2 && c.posicao < x3) {
+              let P = c.intensidade;
+              let b = x3 - c.posicao;
+              termoCarga2 += P * b * (L2**2 - b**2) / L2;
+            }
+          });
+
+          this.cargasDistribuidas.forEach(c => {
+             let w = c.intensidade;
+             let s = c.inicio;
+             let e = c.fim;
+
+             if (s <= x1 && e >= x2) {
+                 termoCarga1 += w * L1**3 / 4;
+             } else if (s >= x1 && e <= x2) {
+                 console.warn("Cálculo para carga distribuída parcial no vão 1 pode ser impreciso.");
+             }
+
+             if (s <= x2 && e >= x3) {
+                 termoCarga2 += w * L2**3 / 4;
+             } else if (s >= x2 && e <= x3) {
+                 console.warn("Cálculo para carga distribuída parcial no vão 2 pode ser impreciso.");
+             }
+          });
+
+
+          const M_B = -(termoCarga1 + termoCarga2) / (2 * (L1 + L2));
+
+          let loadForce_S1 = 0;
+          let loadMoment_S1_about_A = 0;
+          this.cargasPontuais.forEach(c => {
+            if (c.posicao >= x1 && c.posicao <= x2) {
+                let force = c.intensidade;
+                let arm = c.posicao - x1;
+                loadForce_S1 += force;
+                loadMoment_S1_about_A += force * arm;
+            }
+          });
+           this.cargasDistribuidas.forEach(c => {
+              let w = c.intensidade;
+              let overlap_s = Math.max(c.inicio, x1);
+              let overlap_e = Math.min(c.fim, x2);
+              if (overlap_e > overlap_s) {
+                  let len = overlap_e - overlap_s;
+                  let mid = overlap_s + len / 2;
+                  let force = w * len;
+                  loadForce_S1 += force;
+                  loadMoment_S1_about_A += force * (mid - x1);
+              }
+           });
+
+          const R_B1 = (loadMoment_S1_about_A - M_B) / L1;
+          const R_A = loadForce_S1 - R_B1;
+
+
+          let loadForce_S2 = 0;
+          let loadMoment_S2_about_C = 0;
+           this.cargasPontuais.forEach(c => {
+            if (c.posicao >= x2 && c.posicao <= x3) {
+                let force = c.intensidade;
+                let arm = x3 - c.posicao;
+                loadForce_S2 += force;
+                loadMoment_S2_about_C += force * arm;
+            }
+          });
+           this.cargasDistribuidas.forEach(c => {
+              let w = c.intensidade;
+              let overlap_s = Math.max(c.inicio, x2);
+              let overlap_e = Math.min(c.fim, x3);
+              if (overlap_e > overlap_s) {
+                  let len = overlap_e - overlap_s;
+                  let mid = overlap_s + len / 2;
+                  let force = w * len;
+                  loadForce_S2 += force;
+                  loadMoment_S2_about_C += force * (x3 - mid);
+              }
+           });
+
+          const R_B2 = (loadMoment_S2_about_C - M_B) / L2;
+          const R_C = loadForce_S2 - R_B2;
+
+          const R_B = R_B1 + R_B2;
+
+          this.reacoes = { [x1]: R_A, [x2]: R_B, [x3]: R_C };
+
+           let somaReacoes = R_A + R_B + R_C;
+           let somaMomentosA = R_B * L1 + R_C * (L1 + L2) - momentoTotalOrigem;
+           console.log("Verificação 3 Apoios:");
+           console.log(`  Soma Forças V: ${somaReacoes.toFixed(2)} (Total Carga: ${totalForca.toFixed(2)}) -> Erro: ${(somaReacoes - totalForca).toExponential(2)}`);
+           console.log(`  Soma Momentos @ A: ${somaMomentosA.toFixed(2)} -> Erro: ${somaMomentosA.toExponential(2)}`);
+
+
+        } else if (n === 4) {
+          const [x1, x2, x3, x4] = pos;
+          const L1 = x2 - x1;
+          const L2 = x3 - x2;
+          const L3 = x4 - x3;
+
+          if (L1 <= 0 || L2 <= 0 || L3 <= 0) {
+              alert("Posições dos apoios inválidas ou apoios coincidentes.");
+              return false;
+          }
+
+          let TermAB = 0, TermBC = 0, TermCB = 0, TermCD = 0;
+
+          this.cargasPontuais.forEach(c => {
+              let P = c.intensidade;
+              let p = c.posicao;
+              if (p > x1 && p < x2) {
+                  let a = p - x1;
+                  TermAB += P * a * (L1**2 - a**2) / L1;
+              } else if (p > x2 && p < x3) {
+                  let a = p - x2;
+                  let b = x3 - p;
+                  TermBC += P * a * (L2**2 - a**2) / L2;
+                  TermCB += P * b * (L2**2 - b**2) / L2;
+              } else if (p > x3 && p < x4) {
+                  let b = x4 - p;
+                  TermCD += P * b * (L3**2 - b**2) / L3;
+              }
+          });
+
+          this.cargasDistribuidas.forEach(c => {
+              let w = c.intensidade;
+              let s = c.inicio;
+              let e = c.fim;
+
+              if (s <= x1 && e >= x2) TermAB += w * L1**3 / 4;
+              if (s <= x2 && e >= x3) {
+                  TermBC += w * L2**3 / 4;
+                  TermCB += w * L2**3 / 4;
+              }
+              if (s <= x3 && e >= x4) TermCD += w * L3**3 / 4;
+
+              if (!((s <= x1 && e >= x2) || (s <= x2 && e >= x3) || (s <= x3 && e >= x4))) {
+                  if ((s < x2 && e > x1) || (s < x3 && e > x2) || (s < x4 && e > x3)) {
+                      console.warn("Cálculo para cargas distribuídas parciais pode ser impreciso com a fórmula atual.");
+                  }
+              }
+          });
+
+          const A1 = 2 * (L1 + L2);
+          const B1 = L2;
+          const C1 = -TermAB - TermBC;
+
+          const A2 = L2;
+          const B2 = 2 * (L2 + L3);
+          const C2 = -TermCB - TermCD;
+
+          const determinant = A1 * B2 - B1 * A2;
+
+          let M_B = 0;
+          let M_C = 0;
+
+          if (Math.abs(determinant) < 1e-9) {
+              alert("Erro: Sistema para cálculo dos momentos é singular. Verifique os vãos.");
+              return false;
+          } else {
+              M_B = (C1 * B2 - B1 * C2) / determinant;
+              M_C = (A1 * C2 - C1 * A2) / determinant;
+          }
+          console.log(`Momentos Internos Calculados: M_B=${M_B.toFixed(3)}, M_C=${M_C.toFixed(3)}`);
+
+          let R_A = 0, R_B1 = 0, R_B2 = 0, R_C1 = 0, R_C2 = 0, R_D = 0;
+
+          const getSpanLoads = (x_start, x_end) => {
+              let force = 0;
+              let moment_about_start = 0;
+              this.cargasPontuais.forEach(c => {
+                  if (c.posicao >= x_start && c.posicao <= x_end) {
+                      force += c.intensidade;
+                      moment_about_start += c.intensidade * (c.posicao - x_start);
+                  }
+              });
+              this.cargasDistribuidas.forEach(c => {
+                  let w = c.intensidade;
+                  let overlap_s = Math.max(c.inicio, x_start);
+                  let overlap_e = Math.min(c.fim, x_end);
+                  if (overlap_e > overlap_s) {
+                      let len = overlap_e - overlap_s;
+                      let mid = overlap_s + len / 2;
+                      force += w * len;
+                      moment_about_start += (w * len) * (mid - x_start);
+                  }
+              });
+              return { force, moment_about_start };
+          };
+
+          let loadsAB = getSpanLoads(x1, x2);
+          R_B1 = (loadsAB.moment_about_start - M_B) / L1;
+          R_A = loadsAB.force - R_B1;
+
+          let loadsBC = getSpanLoads(x2, x3);
+          R_C1 = (loadsBC.moment_about_start + M_B - M_C) / L2;
+          R_B2 = loadsBC.force - R_C1;
+
+          let loadsCD = getSpanLoads(x3, x4);
+          R_D = (loadsCD.moment_about_start + M_C) / L3;
+          R_C2 = loadsCD.force - R_D;
+
+          const R_B = R_B1 + R_B2;
+          const R_C = R_C1 + R_C2;
+
+          this.reacoes = { [x1]: R_A, [x2]: R_B, [x3]: R_C, [x4]: R_D };
+
+          let somaReacoes = R_A + R_B + R_C + R_D;
+          let momentoVerificacaoOrigem = R_B * x2 + R_C * x3 + R_D * x4;
+          console.log("Verificação 4 Apoios:");
+          console.log(`  Soma Forças V: ${somaReacoes.toFixed(2)} (Total Carga: ${totalForca.toFixed(2)}) -> Erro: ${(somaReacoes - totalForca).toExponential(2)}`);
+          console.log(`  Soma Momentos @ Origem: ${momentoVerificacaoOrigem.toFixed(2)} (Mom Cargas: ${momentoTotalOrigem.toFixed(2)}) -> Erro: ${(momentoVerificacaoOrigem - momentoTotalOrigem).toExponential(2)}`);
+
+
         }
 
         return true;
@@ -141,16 +367,19 @@
       calcularEsforcosInternos(passo = 0.1) {
         const cortante = [];
         const momento = [];
+        const normal = [];
         const xVals = [];
 
         for (let x = 0; x <= this.comprimento; x += passo) {
           let V = 0;
           let M = 0;
+          let N = 0;
 
           for (let pos in this.reacoes) {
-            if (x >= parseFloat(pos)) {
+            const p = parseFloat(pos);
+            if (x >= p) {
               V += this.reacoes[pos];
-              M += this.reacoes[pos] * (x - pos);
+              M += this.reacoes[pos] * (x - p);
             }
           }
 
@@ -176,10 +405,11 @@
 
           cortante.push(V);
           momento.push(M);
+          normal.push(N);
           xVals.push(x.toFixed(2));
         }
 
-        return { x: xVals, cortante, momento };
+        return { x: xVals, cortante, momento, normal };
       }
     }
 
@@ -233,7 +463,6 @@
 
     function calcularViga() {
       let comprimento = parseFloat(document.getElementById("comprimento").value);
-
       let apoios = [];
       document.querySelectorAll(".apoio").forEach(div => {
         let posicao = parseFloat(div.querySelector(".apoio-posicao").value);
@@ -260,66 +489,62 @@
 
       let resultadosDiv = document.getElementById("resultados");
       if (sucesso) {
-        // Mostrar reações
         let res = `<h4>Reações de Apoio</h4>`;
         for (let pos in viga.reacoes) {
-            res += `<p>R(${pos} m): <strong>${viga.reacoes[pos].toFixed(2)} kN</strong></p>`;
+          res += `<p>R(${pos} m): <strong>${viga.reacoes[pos].toFixed(2)} kN</strong></p>`;
         }
         resultadosDiv.innerHTML = res;
 
-        // Gerar gráficos
         const esforcos = viga.calcularEsforcosInternos(0.1);
         desenharGrafico("cortanteChart", esforcos.x, esforcos.cortante, "Esforço Cortante (kN)");
         desenharGrafico("momentoChart", esforcos.x, esforcos.momento, "Momento Fletor (kN·m)");
-        } else {
+        desenharGrafico("normalChart", esforcos.x, esforcos.normal, "Esforço Normal (kN)");
+      } else {
         resultadosDiv.innerHTML = `<p style="color:red;">Erro no cálculo. Verifique os apoios e cargas.</p>`;
       }
     }
 
     function desenharGrafico(canvasId, labels, data, label) {
-        const ctx = document.getElementById(canvasId).getContext('2d');
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      if (window[canvasId + "_instancia"]) {
+        window[canvasId + "_instancia"].destroy();
+      }
 
-        // Destroi o gráfico anterior, se existir
-        if (window[canvasId + "_instancia"]) {
-            window[canvasId + "_instancia"].destroy();
-        }
-
-        window[canvasId + "_instancia"] = new Chart(ctx, {
-            type: 'line',
-            data: {
-            labels: labels,
-            datasets: [{
-                label: label,
-                data: data,
-                fill: false,
-                borderWidth: 2,
-                tension: 0.1
-            }]
+      window[canvasId + "_instancia"] = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: label,
+            data: data,
+            fill: false,
+            borderWidth: 2,
+            tension: 0.1
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: 'top' }
+          },
+          scales: {
+            x: {
+              title: {
+                display: true,
+                text: 'Posição (m)'
+              }
             },
-            options: {
-            responsive: true,
-            plugins: {
-                legend: { position: 'top' }
-            },
-            scales: {
-                x: {
-                title: {
-                    display: true,
-                    text: 'Posição (m)'
-                }
-                },
-                y: {
-                title: {
-                    display: true,
-                    text: label
-                },
-                beginAtZero: false
-                }
+            y: {
+              title: {
+                display: true,
+                text: label
+              },
+              beginAtZero: false
             }
-            }
-        });
+          }
         }
-
+      });
+    }
   </script>
 </body>
 </html>
