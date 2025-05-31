@@ -371,7 +371,8 @@
         const normal = [];
         const xVals = [];
 
-        for (let x = 0; x <= this.comprimento; x += passo) {
+        // Loop para calcular os valores ao longo da viga, indo até (mas não incluindo) o ponto final exato.
+        for (let x = 0; x < this.comprimento; x += passo) {
           let V = 0;
           let M = 0;
           let N = 0;
@@ -394,11 +395,11 @@
           this.cargasDistribuidas.forEach(c => {
             if (x >= c.inicio) {
               let xEfetivo = Math.min(x, c.fim);
-              let comprimento = xEfetivo - c.inicio;
-              if (comprimento > 0) {
-                let f = c.intensidade * comprimento;
+              let comprimentoCarga = xEfetivo - c.inicio;
+              if (comprimentoCarga > 0) {
+                let f = c.intensidade * comprimentoCarga;
                 V -= f;
-                let centro = c.inicio + comprimento / 2;
+                let centro = c.inicio + comprimentoCarga / 2;
                 M -= f * (x - centro);
               }
             }
@@ -409,6 +410,54 @@
           normal.push(N);
           xVals.push(x.toFixed(2));
         }
+
+        // Adiciona explicitamente o último ponto (comprimento total da viga)
+        // Isso é crucial para o diagrama de esforço cortante mostrar o valor
+        // imediatamente antes do salto da reação no apoio final.
+        let V_end = 0;
+        let M_end = 0;
+        let N_end = 0;
+        const x_end = this.comprimento;
+
+        for (let pos in this.reacoes) {
+            const p = parseFloat(pos);
+            // Inclui reações que estão estritamente ANTES do ponto final (x_end)
+            // para o cálculo do esforço cortante no final da viga.
+            if (p < x_end) { 
+                V_end += this.reacoes[pos];
+                M_end += this.reacoes[pos] * (x_end - p);
+            } else if (Math.abs(p - x_end) < 1e-9) { // Se a reação está exatamente no final
+                // Para o momento fletor e esforço normal, a reação no ponto final é incluída.
+                // Para o esforço cortante, ela é excluída para mostrar o valor ANTES do salto.
+                M_end += this.reacoes[pos] * (x_end - p); // (x_end - p) será 0, então não afeta M
+            }
+        }
+
+        this.cargasPontuais.forEach(c => {
+            if (x_end >= c.posicao) {
+                V_end -= c.intensidade;
+                M_end -= c.intensidade * (x_end - c.posicao);
+            }
+        });
+
+        this.cargasDistribuidas.forEach(c => {
+            if (x_end >= c.inicio) {
+                let xEfetivo = Math.min(x_end, c.fim);
+                let comprimentoCarga = xEfetivo - c.inicio;
+                if (comprimentoCarga > 0) {
+                    let f = c.intensidade * comprimentoCarga;
+                    V_end -= f;
+                    let centro = c.inicio + comprimentoCarga / 2;
+                    M_end -= f * (x_end - centro);
+                }
+            }
+        });
+
+        cortante.push(V_end);
+        momento.push(M_end);
+        normal.push(N_end);
+        xVals.push(x_end.toFixed(2));
+
 
         return { x: xVals, cortante, momento, normal };
       }
@@ -512,8 +561,7 @@
       }
 
       const dataArredondada = data.map(val => parseFloat(val.toFixed(1)));
-
-      const reverseY = (canvasId === "momentoChart");
+      const reverseY = (canvasId !== "cortanteChart");
 
       window[canvasId + "_instancia"] = new Chart(ctx, {
         type: 'line',
@@ -537,14 +585,8 @@
                   type: 'line',
                   yMin: 0,
                   yMax: 0,
-                  borderColor: 'rgb(0,0,0)', // Red color for the zero line
-                  borderWidth: 2,
-                  //borderDash: [5, 5], // Dashed line
-                  label: {
-                    content: 'Zero',
-                    enabled: false, // Hide label for the zero line
-                    position: 'end'
-                  }
+                  borderColor: 'black',
+                  borderWidth: 2
                 }
               }
             }
